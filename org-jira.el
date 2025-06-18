@@ -38,6 +38,9 @@
 
 ;;; News:
 
+;;;; Changes in 4.4.2
+;; - Fix for org-insert-subheading behavior change in org 9.7+ in render-issues
+
 ;;;; Changes in 4.4.1
 ;; - Fix tag (4.3.3 was out of order - we had a 4.4.0 on repo)
 ;; - Fix for some crazy scoping issue in the org-jira-get-issue-val-from-org function
@@ -136,7 +139,7 @@
 (require 'jiralib)
 (require 'org-jira-sdk)
 
-(defconst org-jira-version "4.3.1"
+(defconst org-jira-version "4.4.2"
   "Current version of org-jira.el.")
 
 (defgroup org-jira nil
@@ -329,6 +332,7 @@ See `org-default-priority' for more info."
   :group 'org-jira
   :type 'boolean)
 
+<<<<<<< HEAD
 (defcustom org-jira-issue-custom-fields-alist '()
   "An alist of plists containing custom fields to add to issues.
 
@@ -407,6 +411,13 @@ Valid org-jira fields you can use:
   :group 'org-jira
   :type '(alist :key-type symbol :value-type symbol))
 
+=======
+(defcustom org-jira-update-issue-details-include-reporter t
+  "For Jira Cloud API we will get an error if `reporter' is sent with an update request."
+  :group 'org-jira
+  :type 'string)
+
+>>>>>>> dfdc26ab8bfb54f4419d3eb52a17be5361d74b87
 (defvar org-jira-serv nil
   "Parameters of the currently selected blog.")
 
@@ -662,6 +673,7 @@ Used to override the default description/etc. fields with custom fields."
     (define-key org-jira-map (kbd "C-c ih") 'org-jira-get-issues-headonly)
     ;;(define-key org-jira-map (kbd "C-c if") 'org-jira-get-issues-from-filter-headonly)
     ;;(define-key org-jira-map (kbd "C-c iF") 'org-jira-get-issues-from-filter)
+    (define-key org-jira-map (kbd "C-c il") 'org-jira-update-issue-labels)
     (define-key org-jira-map (kbd "C-c iu") 'org-jira-update-issue)
     (define-key org-jira-map (kbd "C-c iw") 'org-jira-progress-issue)
     (define-key org-jira-map (kbd "C-c in") 'org-jira-progress-issue-next)
@@ -1326,7 +1338,7 @@ ISSUE-ID and FILENAME allow linking back to the relevant Jira issue."
   "Render single ISSUE."
 ;;  (org-jira-log "Rendering issue from issue list")
 ;;  (org-jira-log (org-jira-sdk-dump Issue))
-  (with-slots (filename proj-key issue-id summary status priority headline id) Issue
+  (with-slots (filename proj-key issue-id summary status priority headline id parent-key) Issue
     (let (p)
       (with-current-buffer (org-jira--get-project-buffer Issue)
         (org-jira-freeze-ui
@@ -1365,6 +1377,9 @@ ISSUE-ID and FILENAME allow linking back to the relevant Jira issue."
                        (plist-get plist :value)))
                     properties))
 
+            (when parent-key
+              (org-jira-entry-put (point) "parent-issue-key" (format "[jira:%s]" parent-key)))
+
             (org-jira-entry-put (point) "ID" issue-id)
             (org-jira-entry-put (point) "CUSTOM_ID" issue-id)
 
@@ -1374,12 +1389,37 @@ ISSUE-ID and FILENAME allow linking back to the relevant Jira issue."
                 (when (> (length duedate) 0)
                   (org-deadline nil duedate))))
 
+<<<<<<< HEAD
             (let ((headlines (org-jira--get-items-to-render Issue 'headline)))
               (mapc (lambda (data)
                       (org-jira--render-issue-headline issue-id
                                                        filename
                                                        (plist-get data :name)
                                                        (plist-get data :value)))
+=======
+            (mapc
+             (lambda (heading-entry)
+               (ensure-on-issue-id-with-filename issue-id filename
+                                                 (let* ((entry-heading
+                                                         (concat (symbol-name heading-entry)
+                                                                 (format ": [[%s][%s]]"
+                                                                         (concat jiralib-url "/browse/" issue-id) issue-id))))
+                                                   (setq p (org-find-exact-headline-in-buffer entry-heading))
+                                                   (if (and p (>= p (point-min))
+                                                            (<= p (point-max)))
+                                                       (progn
+                                                         (goto-char p)
+                                                         (org-narrow-to-subtree)
+                                                         (goto-char (point-min))
+                                                         (forward-line 1)
+                                                         (delete-region (point) (point-max)))
+                                                     (if (org-goto-first-child)
+                                                         (org-insert-heading)
+                                                       (goto-char (point-max))
+                                                       (open-line 1)
+                                                       (org-insert-subheading t))
+                                                     (org-jira-insert entry-heading "\n"))
+>>>>>>> dfdc26ab8bfb54f4419d3eb52a17be5361d74b87
 
                     headlines))
 
@@ -1908,6 +1948,16 @@ purpose of wiping an old subtree."
   (ensure-on-issue
     (org-jira-get-issues-headonly (jiralib-do-jql-search (format "parent = %s" (org-jira-parse-issue-id))))))
 
+;;;###autoload
+(defun org-jira-update-issue-labels ()
+  "Update jira issue labels."
+  (interactive)
+  (let* ((labels (org-jira-parse-issue-labels))
+         (updated-labels (org-jira-read-labels (format "%s, " labels)))
+         (updated-labels-string (mapconcat 'identity updated-labels ", ")))
+    (org-set-property "labels" updated-labels-string)
+    (org-jira-update-issue)))
+
 (defvar org-jira-project-read-history nil)
 (defvar org-jira-boards-read-history nil)
 (defvar org-jira-sprints-read-history nil)
@@ -2025,6 +2075,7 @@ that should be bound to an issue."
          (jira-users (org-jira-get-assignable-users project))
          (user (completing-read "Assignee: " (mapcar 'car jira-users)))
          (priority (car (rassoc (org-jira-read-priority) (jiralib-get-priorities))))
+         (labels (org-jira-read-labels))
          (ticket-struct
           `((fields
              (project (key . ,project))
@@ -2038,6 +2089,7 @@ that should be bound to an issue."
                                    "")))
              (description . ,description)
              (priority (id . ,priority))
+             (labels . ,labels)
              ;; accountId should be nil if Unassigned, not the key slot.
              (assignee (accountId . ,(or (cdr (assoc user jira-users)) nil)))))))
     ticket-struct))
@@ -2170,6 +2222,15 @@ that should be bound to an issue."
     (or
      (car (rassoc action actions))
      (user-error "You specified an empty action, the valid actions are: %s" (mapcar 'cdr actions)))))
+
+(defun org-jira-read-labels (&optional current-labels)
+  "Pick multiple labels which will be added or updating existing
+CURRENT-LABELS and save with the jira issue."
+  (unless current-labels (setq current-labels nil))
+  (if jiralib-labels-cache
+      (completing-read-multiple "Labels: " jiralib-labels-cache nil nil current-labels)
+    (jiralib-get-labels)
+    (completing-read-multiple "Labels: " jiralib-labels-cache nil nil current-labels)))
 
 (defvar org-jira-fields-history nil)
 (defun org-jira-read-field (fields)
@@ -2486,6 +2547,7 @@ otherwise it should return:
       (when org-jira-worklog-sync-p
         (org-jira-update-worklogs-from-org-clocks))
 
+<<<<<<< HEAD
       ;; If we enable duedate sync and we have a deadline present
       (when (and org-jira-deadline-duedate-sync-p
                  (org-jira-get-issue-val-from-org 'deadline))
@@ -2493,6 +2555,52 @@ otherwise it should return:
               (append update-fields
                       (list (cons (org-jira--org->api-field-id 'duedate)
                                   (org-jira-get-issue-val-from-org 'deadline))))))
+=======
+      ;; Send the update to jira
+      (let ((update-fields
+             (list (cons
+                    'components
+                    (or (org-jira-build-components-list
+                         project-components
+                         org-issue-components) []))
+                   (cons 'labels (split-string org-issue-labels ",\\s *"))
+                   (cons 'priority (org-jira-get-id-name-alist org-issue-priority
+                                                       (jiralib-get-priorities)))
+                   (cons 'description org-issue-description)
+                   (cons 'assignee (list (cons 'id (jiralib-get-user-account-id project org-issue-assignee))))
+                   (cons 'summary (org-jira-strip-priority-tags (org-jira-get-issue-val-from-org 'summary)))
+                   (cons 'issuetype `((id . ,org-issue-type-id)
+      (name . ,org-issue-type))))))
+
+        (if org-jira-update-issue-details-include-reporter
+            (setq update-fields
+                  (append update-fields
+                          (list (cons 'reporter (list (cons 'id (jiralib-get-user-account-id project org-issue-reporter))))))))
+
+        ;; If we enable duedate sync and we have a deadline present
+        (when (and org-jira-deadline-duedate-sync-p
+                   (org-jira-get-issue-val-from-org 'deadline))
+          (setq update-fields
+                (append update-fields
+                        (list (cons 'duedate (org-jira-get-issue-val-from-org 'deadline))))))
+
+        ;; TODO: We need some way to handle things like assignee setting
+        ;; and refreshing the proper issue in the proper buffer/filename.
+        (jiralib-update-issue
+         issue-id
+         update-fields
+         ;; This callback occurs on success
+         (org-jira-with-callback
+           (message (format "Issue '%s' updated!" issue-id))
+           (jiralib-get-issue
+            issue-id
+            (org-jira-with-callback
+              (org-jira-log "Update get issue for refresh callback hit.")
+              (-> cb-data list org-jira-get-issues))))
+         ))
+      )))
+
+>>>>>>> dfdc26ab8bfb54f4419d3eb52a17be5361d74b87
 
       ;; TODO: We need some way to handle things like assignee setting
       ;; and refreshing the proper issue in the proper buffer/filename.
@@ -2533,6 +2641,18 @@ otherwise it should return:
         (unless (and continue (org-up-heading-safe))
           (setq continue nil)))
       filename)))
+
+(defun org-jira-parse-issue-labels ()
+  "Get issue labels from org text."
+  (save-excursion
+    (let ((continue t)
+          labels)
+      (while continue
+        (when (setq labels (org-entry-get (point) "labels"))
+          (setq continue nil))
+        (unless (and continue (org-up-heading-safe))
+          (setq continue nil)))
+      labels)))
 
 (defun org-jira-get-from-org (type entry)
   "Get an org property from the current item.

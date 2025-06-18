@@ -133,6 +133,7 @@ Some of the important keybindings:
 (define-key org-jira-map (kbd "C-c ig") 'org-jira-get-issues)
 (define-key org-jira-map (kbd "C-c ij") 'org-jira-get-issues-from-custom-jql)
 (define-key org-jira-map (kbd "C-c ih") 'org-jira-get-issues-headonly)
+(define-key org-jira-map (kbd "C-c il") 'org-jira-update-issue-labels)
 (define-key org-jira-map (kbd "C-c iu") 'org-jira-update-issue)
 (define-key org-jira-map (kbd "C-c iw") 'org-jira-progress-issue)
 (define-key org-jira-map (kbd "C-c in") 'org-jira-progress-issue-next)
@@ -235,6 +236,16 @@ https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-
 The self-hosted version of Jira appears to still support Basic Authentication with a user password:
 
 https://developer.atlassian.com/server/jira/platform/basic-authentication/
+
+#### Using API token on MacOS
+On MacOS, the initial connection may fail with `The macOS Keychain auth-source
+backend doesn’t support creation yet`. To resolve, [make an API
+token](https://id.atlassian.com/manage-profile/security/api-tokens) and save it
+in the keychain manually. This command will interactively prompt for the token:
+
+``` shell
+security add-internet-password -a "your.email@example.example" -s 'example.atlassian.net' -P 443 -w
+```
 
 #### Using Bearer authentication with Personal Access Tokens
 

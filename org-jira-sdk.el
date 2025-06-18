@@ -80,11 +80,11 @@
   (let ((slots (mapcar (lambda (slot) (aref slot 1)) (eieio-class-slots (eieio-object-class rec)))))
     (setq slots (cl-remove-if (lambda (s) (not (slot-boundp rec s))) slots))
     (apply #'concat
-     (mapcar (lambda (slot)
-               (let ((slot (intern (org-jira-sdk-to-string slot))))
-                 (format "\n%+16s:   %s" slot (slot-value rec (intern (org-jira-sdk-to-string slot)))))
-               )
-             slots))))
+           (mapcar (lambda (slot)
+                     (let ((slot (intern (org-jira-sdk-to-string slot))))
+                       (format "\n%+16s:   %s" slot (slot-value rec (intern (org-jira-sdk-to-string slot)))))
+                     )
+                   slots))))
 
 (defun org-jira-sdk-path (alist key-chain)
   "Query a nested path in some type of ALIST by traversing down the keys of KEY-CHAIN."
@@ -102,6 +102,7 @@
    (issue-id :type string :initarg :issue-id :documentation "The common ID/key, such as EX-1.")
    (issue-id-int :type string :initarg :issue-id-int :documentation "The internal Jira ID, such as 12345.")
    (filename :type (or null string) :initarg :filename :documentation "The filename to write issue to.")
+   (parent-key :type (or null string) :initarg :parent-key :documentation "The parent issue key if there is one")
    (priority :type (or null string) :initarg :priority)
    (proj-key :type string :initarg :proj-key)
    (reporter :type (or null string) :initarg :reporter)
@@ -147,10 +148,10 @@
 (cl-defmethod org-jira-sdk-from-data ((rec org-jira-sdk-issue))
   (cl-flet ((path (keys) (org-jira-sdk-path (oref rec data) keys))
             (field (keys)
-                   (let* ((org-name (car keys))
-                          (jira-field-id (org-jira--org->api-field-id org-name))
-                         (path (cdr keys)))
-                     (org-jira-sdk-path (oref rec data) (cons 'fields (cons jira-field-id path))))))
+              (let* ((org-name (car keys))
+                     (jira-field-id (org-jira--org->api-field-id org-name))
+                     (path (cdr keys)))
+                (org-jira-sdk-path (oref rec data) (cons 'fields (cons jira-field-id path))))))
     (org-jira-sdk-issue
      :assignee (field '(assignee displayName))
      :components (mapconcat (lambda (c) (org-jira-sdk-path c '(name))) (field '(components)) ", ")
@@ -163,20 +164,35 @@
      :id (path '(key))
      :issue-id (path '(key))
      :issue-id-int (path '(id))
-     :priority (field '(priority name))
-     :proj-key (field '(project key))
-     :reporter (field '(reporter displayName)) ; reporter could be an object of its own slot values
-     :resolution (field '(resolution name))  ; confirm
-     :sprint (field '(sprint name))
-     :start-date (field '(start-date))  ; confirm
-     :status (org-jira-decode (field '(status name)))
-     :summary (field '(summary))
-     :type (field '(issuetype name))
-     :type-id (field '(issuetype id))
-     :updated (field '(updated))  ; confirm
+     :parent-key (path '(fields parent key))
+     ;;:proj-key (field '(project key)) ; !!! (dev=custom field)
+     ;;:priority (field '(priority name))
+     :priority (path '(fields priority name))
+     :proj-key (path '(fields project key))
+     :reporter (path '(fields reporter displayName)) ; reporter could be an object of its own slot values
+     :resolution (path '(fields resolution name))  ; confirm
+     ;;:resolution (field '(resolution name))  ; confirm !!! (dev=custom field)
+     :reporter (field '(reporter displayName)) ; reporter could be an object of its own slot values !!!update
+     :sprint (path '(fields sprint name))
+     ;;:sprint (field '(sprint name)) ;; !!! (dev=custom field)
+     :start-date (path '(fields start-date))  ; confirm
+     ;;:start-date (field '(start-date))  ; confirm  ;; !!! (dev=custom field)
+     :status (org-jira-decode (path '(fields status name)))
+     ;;:status (org-jira-decode (field '(status name))) ;; !!! (dev=custom field)
+     :summary (path '(fields summary))
+     ;;:summary (field '(summary)) ;; !!! (dev=customField)
+     :type (path '(fields issuetype name))
+     ;;:type (field '(issuetype name)) ;; !!! ! (dev=custom field) (dev=custom field)
+     :type-id (path '(fields issuetype id))
+     ;;:type-id (field '(issuetype id)) ;; !!! (dev=custom field) (dev=custom field)
+     :updated (path '(fields updated))  ; confirm
+     ;;:updated (field '(updated))  ; confirm ;; !!! (dev=custom field)
+
      :custom-fields (cl-remove-if-not
                      (lambda (f) (assoc (car f) org-jira-issue-custom-fields-alist))
-                     (path '(fields)))
+                     (path '(fields))) ;; !!! (dev=custom field)
+
+
      ;; TODO: Remove this
      ;; :data (oref rec data)
      )))
